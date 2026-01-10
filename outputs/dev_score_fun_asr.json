@@ -1,0 +1,10 @@
+{
+  "fun_asr_cer": 0.054,
+  "fun_asr_wer": 0.0798,
+  "num_samples": 100,
+  "model_path": "/calc/users/cisri_shzh_gpu/users/lmy/asr/ASR_GT_pipline/FunAudioLLM/Fun-ASR-Nano-2512",
+  "language": "zh",
+  "itn": true,
+  "normalize_rules": "NFKC + lower + remove punctuation + collapse whitespace",
+  "wer_tokenization": "jieba for Chinese"
+}

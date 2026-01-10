@@ -1,0 +1,6 @@
+{
+  "fun_asr_enhanced_cer": 0.054,
+  "fun_asr_enhanced_wer": 0.0798,
+  "num_samples": 100,
+  "enhancement": "noise reduction + AGC for SNR<15dB"
+}
