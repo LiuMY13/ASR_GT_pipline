@@ -1,0 +1,9 @@
+{
+  "baseline_cer": 0.0758,
+  "teacher_cer": 0.1165,
+  "baseline_wer": 0.1507,
+  "teacher_wer": 0.2039,
+  "cer_improvement": -0.0407,
+  "wer_improvement": -0.0532,
+  "num_samples": 100
+}

@@ -2,6 +2,11 @@
 import json
 from pathlib import Path
 from jiwer import cer, wer
+import sys
+
+sys.path.append(str(Path(__file__).parent.parent))  # 添加项目根目录到 path
+from utils.text_norm import text_normalize
+from Teacher_ASR.asr_model import FasterWhisperASR
 from utils.text_norm import text_normalize
 import jieba
 

@@ -24,7 +24,8 @@ def process_subset(input_dir: Path, output_dir: Path, subset: str, asr_model):
                 continue
             item = json.loads(line)
             utt_id = item["utt_id"]
-            audio_file = wavs_dir / item["audio_path"]
+            # audio_file = wavs_dir / item["audio_path"]
+            audio_file = input_dir / subset / item["audio_path"]
 
             # 获取 online 文本
             text_online = item["text_online"]
