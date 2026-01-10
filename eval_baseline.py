@@ -1,37 +1,65 @@
+# merge_full_features.py
 import json
 from pathlib import Path
-from jiwer import cer, wer
-from utils.text_norm import text_normalize
+import sys
+
+BASE_DIR = Path("/calc/users/cisri_shzh_gpu/users/lmy/asr/ASR_GT_pipline")
+sys.path.insert(0, str(BASE_DIR / "Quality/AQ"))
+sys.path.insert(0, str(BASE_DIR / "Quality/TQ"))
+
+# ===== 复用你的文本处理工具 =====
+try:
+    from utils.text_norm import text_normalize
+except ImportError:
+    # fallback normalize (与你的 eval_baseline.py 一致)
+    import unicodedata
+    import re
+
+    def text_normalize(text: str) -> str:
+        if not isinstance(text, str):
+            return ""
+        text = unicodedata.normalize("NFKC", text).lower()
+        text = re.sub(r"[^\u4e00-\u9fa5a-z0-9]", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+
 import jieba
 
 
 def tokenize_for_wer(text: str) -> str:
-    """Tokenize text for WER using jieba (handles Chinese + English)."""
     words = jieba.lcut(text)
-    words = [word.strip() for word in words if word.strip()]
-    return " ".join(words)
+    return " ".join([w.strip() for w in words if w.strip()])
 
 
-def compute_per_utt_cer_wer(ref: str, hyp: str) -> tuple[float, float]:
-    """Compute CER and WER for a single utterance."""
-    # print(f"[DEBUG] ref={repr(ref)} | hyp={repr(hyp)}")
+from jiwer import cer, wer
+
+
+def compute_online_cer_wer(ref: str, hyp: str) -> tuple[float, float]:
     try:
         c = cer(ref, hyp)
-    except Exception:
-        c = 1.0  # fallback
+    except:
+        c = 1.0
     try:
         w = wer(ref, hyp)
-    except Exception:
-        w = 1.0  # fallback
+    except:
+        w = 1.0
     return c, w
 
 
-def main():
-    dev_dir = Path("data/dev")
-    output_dir = Path("outputs")
-    output_dir.mkdir(exist_ok=True)
+# ===== 其他导入 =====
+from aq import compute_aq
+from tq import compute_tq
+from run_funasr_eval import run_teacher_asr
 
-    # 1. Load GT
+OUTPUT_DIR = BASE_DIR / "outputs"
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+
+def main():
+    dev_dir = BASE_DIR / "data" / "dev"  # 注意：你之前写的是 dev_1，这里改为 dev
+    MODEL_PATH = str(BASE_DIR / "FunAudioLLM/Fun-ASR-Nano-2512")
+
+    # === 1. Load GT and meta ===
     gt_map = {}
     with open(dev_dir / "gt.jsonl", "r", encoding="utf-8") as f:
         for line in f:
@@ -39,89 +67,82 @@ def main():
                 item = json.loads(line)
                 gt_map[item["utt_id"]] = item["text_gt"]
 
-    # 2. Prepare lists for overall metrics
-    refs_cer_all = []
-    hyps_cer_all = []
-    refs_wer_all = []
-    hyps_wer_all = []
-
-    # 3. Per-utterance metrics list
-    per_utt_list = []
-
+    meta_list = []
     with open(dev_dir / "meta.jsonl", "r", encoding="utf-8") as f:
         for line in f:
-            if not line.strip():
-                continue
-            item = json.loads(line)
-            utt_id = item["utt_id"]
-            if utt_id not in gt_map:
-                continue
+            if line.strip():
+                meta_list.append(json.loads(line))
 
-            ref_raw = gt_map[utt_id]
-            hyp_raw = item["text_online"]
+    # === 2. Run Teacher ASR ===
+    print("🚀 Running Teacher ASR...")
+    teacher_results = run_teacher_asr(dev_dir, MODEL_PATH)
 
-            # Normalize for CER
-            ref_cer = text_normalize(ref_raw)
-            hyp_cer = text_normalize(hyp_raw)
+    # === 3. Process each utterance ===
+    full_list = []
+    for meta_item in meta_list:
+        utt_id = meta_item["utt_id"]
+        if utt_id not in gt_map:
+            continue
 
-            if not ref_cer:
-                continue
+        wav_path = str(dev_dir / meta_item["audio_path"])
+        text_online = meta_item["text_online"]
+        text_gt = gt_map[utt_id]
 
-            # Tokenize for WER
-            ref_wer = tokenize_for_wer(ref_cer)
-            hyp_wer = tokenize_for_wer(hyp_cer)
+        # === 计算 online_cer / online_wer ===
+        ref_cer = text_normalize(text_gt)
+        hyp_cer = text_normalize(text_online)
+        if not ref_cer:
+            continue
 
-            # Compute per-utt CER/WER
-            utt_cer, _ = compute_per_utt_cer_wer(ref_cer, hyp_cer)
-            _, utt_wer = compute_per_utt_cer_wer(ref_wer, hyp_wer)
+        ref_wer = tokenize_for_wer(ref_cer)
+        hyp_wer = tokenize_for_wer(hyp_cer)
 
-            # Save for overall metrics
-            refs_cer_all.append(ref_cer)
-            hyps_cer_all.append(hyp_cer)
-            refs_wer_all.append(ref_wer)
-            hyps_wer_all.append(hyp_wer)
+        online_cer, _ = compute_online_cer_wer(ref_cer, hyp_cer)
+        _, online_wer = compute_online_cer_wer(ref_wer, hyp_wer)
 
-            # Save per-utt record
-            per_utt_list.append(
-                {
-                    "utt_id": utt_id,
-                    "ref_raw": ref_raw,
-                    "hyp_online": hyp_raw,
-                    "ref_cer": ref_cer,
-                    "hyp_cer": hyp_cer,
-                    "ref_wer": ref_wer,  # ← 新增
-                    "hyp_wer": hyp_wer,
-                    "cer": round(utt_cer, 4),
-                    "wer": round(utt_wer, 4),
-                }
-            )
+        # === AQ ===
+        aq_metrics = compute_aq(wav_path)
 
-    # 4. Compute overall metrics
-    overall_cer = cer(refs_cer_all, hyps_cer_all)
-    overall_wer = wer(refs_wer_all, hyps_wer_all)
+        # === TQ ===
+        tq_online = compute_tq(text_online)
+        tq_teacher = compute_tq(teacher_results.get(utt_id, {}).get("hyp_fun_asr", ""))
+        tq_gt = compute_tq(text_gt)
 
-    # 5. Save overall score
-    overall_result = {
-        "baseline_cer": round(overall_cer, 4),
-        "baseline_wer": round(overall_wer, 4),
-        "num_samples": len(per_utt_list),
-        "normalize_rules": "NFKC + lower + remove punctuation + collapse whitespace",
-        "wer_tokenization": "jieba for Chinese",
-    }
+        # === Final record ===
+        record = {
+            "utt_id": utt_id,
+            "audio_path": meta_item["audio_path"],
+            "duration_sec": meta_item.get("duration_sec", None),
+            # Texts
+            "text_gt": text_gt,
+            "text_online": text_online,
+            "text_teacher": teacher_results.get(utt_id, {}).get("hyp_fun_asr", ""),
+            # Online vs GT Metrics
+            "online_cer": round(online_cer, 4),
+            "online_wer": round(online_wer, 4),
+            # AQ Metrics
+            **aq_metrics,
+            # Teacher ASR Metrics
+            "teacher_cer": teacher_results.get(utt_id, {}).get("cer", None),
+            "teacher_wer": teacher_results.get(utt_id, {}).get("wer", None),
+            # TQ Metrics
+            "ref_lm_logprob": tq_gt["lm_logprob"],
+            "ref_tq": tq_gt["tq"],
+            "hyp_online_lm_logprob": tq_online["lm_logprob"],
+            "hyp_teacher_lm_logprob": tq_teacher["lm_logprob"],
+            "hyp_online_tq": tq_online["tq"],
+            "hyp_teacher_tq": tq_teacher["tq"],
+        }
 
-    with open(output_dir / "dev_score.json", "w", encoding="utf-8") as f:
-        json.dump(overall_result, f, ensure_ascii=False, indent=2)
+        full_list.append(record)
 
-    # 6. Save per-utterance metrics
-    with open(output_dir / "per_utt_metrics.jsonl", "w", encoding="utf-8") as f:
-        for record in per_utt_list:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    # === Save ===
+    output_file = OUTPUT_DIR / "dev_full_features.jsonl"
+    with open(output_file, "w", encoding="utf-8") as f:
+        for rec in full_list:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-    print(f"✅ Overall CER: {overall_cer:.4f}")
-    print(f"✅ Overall WER: {overall_wer:.4f}")
-    print(f"📊 ({len(per_utt_list)} samples)")
-    print(f"📝 Overall score saved to outputs/dev_score.json")
-    print(f"📄 Per-utterance metrics saved to outputs/per_utt_metrics.jsonl")
+    print(f"✅ Done! Merged {len(full_list)} samples to {output_file}")
 
 
 if __name__ == "__main__":

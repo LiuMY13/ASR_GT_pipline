@@ -64,3 +64,9 @@ pip install git+https://github.com/sarulab-speech/UTMOSv2.git
 轻量级（117M 参数），适合批量推理；
 使用 CER 对齐后的文本（hyp_cer 字段）：已去除标点、转为小写、无多余空格；
 保留英文术语（如 monorepo, drizzle），因其在上下文中具有语义；
+
+tq = max(0.0, min(1.0, (lm_logprob + 8.0) / 6.0))
+绝大多数合理句子的 lm_logprob 落在 -2 ~ -6
+严重错误通常 < -7
+-8 是一个安全下限（再低也没区分度）
+-2 是高质量文本的上限（很少超过）
