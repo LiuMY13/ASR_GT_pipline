@@ -14,7 +14,7 @@ def tokenize_for_wer(text: str) -> str:
 
 def compute_per_utt_cer_wer(ref: str, hyp: str) -> tuple[float, float]:
     """Compute CER and WER for a single utterance."""
-    #print(f"[DEBUG] ref={repr(ref)} | hyp={repr(hyp)}")
+    # print(f"[DEBUG] ref={repr(ref)} | hyp={repr(hyp)}")
     try:
         c = cer(ref, hyp)
     except Exception:
@@ -72,7 +72,8 @@ def main():
             hyp_wer = tokenize_for_wer(hyp_cer)
 
             # Compute per-utt CER/WER
-            utt_cer, utt_wer = compute_per_utt_cer_wer(ref_cer, hyp_cer)
+            utt_cer, _ = compute_per_utt_cer_wer(ref_cer, hyp_cer)
+            _, utt_wer = compute_per_utt_cer_wer(ref_wer, hyp_wer)
 
             # Save for overall metrics
             refs_cer_all.append(ref_cer)
