@@ -1,5 +1,7 @@
 # LogLabel Booster – 终版报告
 
+![label booster](LogLabelBooster.png)
+
 ##outpus：
 
 dev: dev_score.jsonl, manifest.jsonl, per_utt_metrics.jsonl
