@@ -2,7 +2,7 @@
 
 ![label booster](LogLabelBooster.png)
 
-##outpus：
+## outpus：
 
 dev: dev_score.jsonl, manifest.jsonl, per_utt_metrics.jsonl
 
