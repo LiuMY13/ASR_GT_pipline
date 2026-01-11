@@ -1,7 +1,0 @@
-{
-  "baseline_cer": 0.0758,
-  "baseline_wer": 0.1507,
-  "num_samples": 100,
-  "normalize_rules": "NFKC + lower + remove punctuation + collapse whitespace",
-  "wer_tokenization": "jieba for Chinese"
-}

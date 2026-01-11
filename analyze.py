@@ -1,18 +1,25 @@
-# analyze.py
+# analyze.py (with WER support)
 import json
 import pandas as pd
-from jiwer import cer
+from jiwer import cer, wer
 import re
 import unicodedata
+import jieba
+from utils.text_norm import text_normalize
+
+# # ===== 文本标准化 =====
+# def text_normalize(text: str) -> str:
+#     if not isinstance(text, str):
+#         return ""
+#     text = unicodedata.normalize("NFKC", text).lower()
+#     text = re.sub(r"[^\u4e00-\u9fa5a-z0-9]", "", text)
+#     return text
 
 
-# ===== 文本标准化（与你的 pipeline 一致）=====
-def text_normalize(text: str) -> str:
-    if not isinstance(text, str):
-        return ""
-    text = unicodedata.normalize("NFKC", text).lower()
-    text = re.sub(r"[^\u4e00-\u9fa5a-z0-9]", "", text)
-    return text
+# ===== WER 分词 =====
+def tokenize_for_wer(text: str) -> str:
+    words = jieba.lcut(text)
+    return " ".join([w.strip() for w in words if w.strip()])
 
 
 # ===== 加载数据 =====
@@ -23,15 +30,23 @@ with open(INPUT_FILE, "r", encoding="utf-8") as f:
 
 df = pd.DataFrame(data)
 
-# ===== 计算 agreement_cer (online vs teacher) =====
+# ===== 计算 agreement_cer / agreement_wer =====
 agreement_cers = []
+agreement_wers = []
 for _, row in df.iterrows():
     hyp_online = text_normalize(row["text_online"])
     hyp_teacher = text_normalize(row["text_teacher"])
     agreement_cers.append(cer(hyp_online, hyp_teacher))
-df["agreement_cer"] = agreement_cers
 
-# ===== 1. 基础统计 =====
+    # WER 需要分词
+    hyp_online_wer = tokenize_for_wer(hyp_online)
+    hyp_teacher_wer = tokenize_for_wer(hyp_teacher)
+    agreement_wers.append(wer(hyp_online_wer, hyp_teacher_wer))
+
+df["agreement_cer"] = agreement_cers
+df["agreement_wer"] = agreement_wers
+
+# ===== 1. 基础统计（新增 WER 相关字段）=====
 features = [
     "online_cer",
     "online_wer",
@@ -48,60 +63,65 @@ features = [
     "hyp_teacher_lm_logprob",
     "ref_lm_logprob",
     "agreement_cer",
+    "agreement_wer",  # ← 新增
 ]
 
-print("=== 基础统计 (Descriptive Statistics) ===")
+print("=== 基础统计 ===")
 desc_stats = df[features].describe().T
 print(desc_stats.round(4))
 desc_stats.to_csv("outputs/feature_statistics.csv")
 
-# ===== 2. 相关性分析 =====
-print("\n=== 与 online_cer 的 Pearson 相关系数 ===")
-correlation = df[features].corr()["online_cer"].sort_values(key=abs, ascending=False)
-print(correlation.round(4))
-correlation.to_csv("outputs/correlation_with_online_cer.csv")
+# ===== 2. 相关性分析（同时看 CER 和 WER）=====
+print("\n=== 与 online_cer 的相关性 ===")
+corr_cer = df[features].corr()["online_cer"].sort_values(key=abs, ascending=False)
+print(corr_cer.round(4))
+
+print("\n=== 与 online_wer 的相关性 ===")
+corr_wer = df[features].corr()["online_wer"].sort_values(key=abs, ascending=False)
+print(corr_wer.round(4))
+
+# 保存相关性
+corr_cer.to_csv("outputs/correlation_with_online_cer.csv")
+corr_wer.to_csv("outputs/correlation_with_online_wer.csv")
 
 
-# ===== 3. 决策策略 =====
+# ===== 3. 决策策略（不变）=====
 def decide_keep(record: dict) -> tuple[bool, list[str], str]:
-    # 计算 agreement_cer
     hyp_online = text_normalize(record["text_online"])
     hyp_teacher = text_normalize(record["text_teacher"])
     agreement_cer = cer(hyp_online, hyp_teacher)
 
-    # Rule 1: 音频硬过滤（极端情况）
     if record["aq"] < 0.5:
         return False, ["low_aq"], ""
-
-    # Rule 2: Online 质量高 → 保留（TQ > 0.75 或 CER 估计低）
-    if record["hyp_online_tq"] >= 0.75:
+    if record["hyp_online_tq"] >= 0.7:
         return True, ["high_online_tq"], record["text_online"]
-
-    # Rule 3: Teacher 明显更好 → 替换
-    # 条件：Teacher TQ 高 + agreement_cer 大（说明 Online 错了）
     if (
-        record["hyp_teacher_tq"] >= 0.75
+        record["hyp_teacher_tq"] >= 0.6
         and record["hyp_online_tq"] < 0.6
         and agreement_cer > 0.2
     ):
         return True, ["teacher_replace", "teacher_better"], record["text_teacher"]
-
-    # Rule 4: 默认保留 online（即使中等质量）
     return True, ["default_keep"], record["text_online"]
 
 
-# 应用策略
+# ===== 4. 应用策略并计算 CER/WER =====
 results = []
 for _, row in df.iterrows():
     keep, tags, text_final = decide_keep(row.to_dict())
 
-    # 计算 final_cer (vs GT)
     if keep:
-        ref_norm = text_normalize(row["text_gt"])
-        hyp_norm = text_normalize(text_final)
-        final_cer = cer(ref_norm, hyp_norm)
+        # CER
+        ref_cer = text_normalize(row["text_gt"])
+        hyp_cer = text_normalize(text_final)
+        final_cer = cer(ref_cer, hyp_cer)
+
+        # WER
+        ref_wer = tokenize_for_wer(ref_cer)
+        hyp_wer = tokenize_for_wer(hyp_cer)
+        final_wer = wer(ref_wer, hyp_wer)
     else:
         final_cer = 1.0
+        final_wer = 1.0
 
     results.append(
         {
@@ -110,33 +130,38 @@ for _, row in df.iterrows():
             "tags": tags,
             "text_final": text_final,
             "final_cer": final_cer,
+            "final_wer": final_wer,
             "duration_sec": row["duration_sec"],
         }
     )
 
-# ===== 4. 策略效果评估 =====
+# ===== 5. 策略效果评估（CER + WER）=====
 result_df = pd.DataFrame(results)
 
-total_duration = result_df["duration_sec"].sum()
-weighted_cer = (
-    result_df["final_cer"] * result_df["duration_sec"]
-).sum() / total_duration
-coverage = result_df["keep"].mean()
-baseline_weighted_cer = (df["online_cer"] * df["duration_sec"]).sum() / df[
+# Weighted CER
+baseline_cer = (df["online_cer"] * df["duration_sec"]).sum() / df["duration_sec"].sum()
+final_cer = (result_df["final_cer"] * result_df["duration_sec"]).sum() / result_df[
     "duration_sec"
 ].sum()
 
-print(f"\n=== 策略效果 ===")
-print(f"Baseline Weighted CER: {baseline_weighted_cer:.4f}")
-print(f"Final Weighted CER:    {weighted_cer:.4f}")
-print(
-    f"CER Reduction:         {(baseline_weighted_cer - weighted_cer):.4f} ({(baseline_weighted_cer - weighted_cer)/baseline_weighted_cer*100:.1f}%)"
-)
-print(
-    f"Coverage:              {coverage:.2%} ({result_df['keep'].sum()}/{len(result_df)})"
-)
+# Weighted WER
+baseline_wer = (df["online_wer"] * df["duration_sec"]).sum() / df["duration_sec"].sum()
+final_wer = (result_df["final_wer"] * result_df["duration_sec"]).sum() / result_df[
+    "duration_sec"
+].sum()
 
-# ===== 5. 保存 manifest.jsonl =====
+coverage = result_df["keep"].mean()
+
+print(f"\n=== 策略效果 ===")
+print(
+    f"Baseline Weighted CER: {baseline_cer:.4f} → Final: {final_cer:.4f} (Δ: {baseline_cer-final_cer:+.4f})"
+)
+print(
+    f"Baseline Weighted WER: {baseline_wer:.4f} → Final: {final_wer:.4f} (Δ: {baseline_wer-final_wer:+.4f})"
+)
+print(f"Coverage: {coverage:.2%} ({result_df['keep'].sum()}/{len(result_df)})")
+
+# ===== 6. 保存 manifest.jsonl =====
 manifest = []
 for _, row in result_df.iterrows():
     orig = df[df["utt_id"] == row["utt_id"]].iloc[0]
@@ -151,7 +176,7 @@ for _, row in result_df.iterrows():
             "aq": float(orig["aq"]),
             "tq": (
                 float(orig["hyp_online_tq"])
-                if "high_online_tq" in row["tags"] or "medium_quality" in row["tags"]
+                if "high_online_tq" in row["tags"] or "default_keep" in row["tags"]
                 else float(orig["hyp_teacher_tq"])
             ),
             "tags": row["tags"],
@@ -165,4 +190,5 @@ with open("outputs/manifest.jsonl", "w", encoding="utf-8") as f:
 print(f"\n✅ 输出文件:")
 print(f"- outputs/feature_statistics.csv")
 print(f"- outputs/correlation_with_online_cer.csv")
+print(f"- outputs/correlation_with_online_wer.csv")  # ← 新增
 print(f"- outputs/manifest.jsonl")

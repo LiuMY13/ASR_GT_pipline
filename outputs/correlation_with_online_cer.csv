@@ -1,7 +1,7 @@
-,online_cer
 online_cer,1.0
 online_wer,0.8375344209242881
 agreement_cer,0.7273625070967219
+agreement_wer,0.6148861327039679
 hyp_online_tq,-0.539044661180788
 hyp_online_lm_logprob,-0.5390045834463387
 ref_lm_logprob,0.18704373969415977
