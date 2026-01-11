@@ -4,7 +4,8 @@ import argparse
 from pathlib import Path
 import sys
 
-BASE_DIR = Path("/calc/users/cisri_shzh_gpu/users/lmy/asr/ASR_GT_pipline")
+# BASE_DIR = Path("/calc/users/cisri_shzh_gpu/users/lmy/asr/ASR_GT_pipline")
+BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR / "Quality"))
 
 from AQ.aq import compute_aq
