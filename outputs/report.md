@@ -1,5 +1,9 @@
 # LogLabel Booster – 终版报告
 
+##outpus：
+dev: dev_score.jsonl, manifest.jsonl
+train-like: manifest.jsonl
+test: manifest.jsonl
 ---
 
 ## 1. 数据拆分（Dev → Train/Dev）
@@ -22,10 +26,12 @@
 
 ---
 
+
+
 ## 3. 评测基线（Online vs Teacher）
 | 模型               | CER        | WER        | 备注                       |
 | ------------------ | ---------- | ---------- | -------------------------- |
-| Online（baseline） | 7.58 %     | 15.07 %    | -                          |
+| Online（baseline） | 8.34 %     | 16.26 %    | -                          |
 | Fast-Whisper       | 11.65 %    | 20.39 %    | 效果下降，弃用             |
 | FunAudio-Nano      | **5.40 %** | **7.98 %** | 选为 Teacher               |
 | FunAudio-Enhanced  | 5.59 %     | 7.98 %     | 降噪/增益 → 人工伪影，回退 |
