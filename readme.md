@@ -1,8 +1,11 @@
 # LogLabel Booster – 终版报告
 
 ##outpus：
-dev: dev_score.jsonl, manifest.jsonl
+
+dev: dev_score.jsonl, manifest.jsonl, per_utt_metrics.jsonl
+
 train-like: manifest.jsonl
+
 test: manifest.jsonl
 ---
 
